@@ -1,0 +1,13 @@
+name: UniSuperDBD
+title: UniSuperDBD
+username:
+account: paulmelloy
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6375078
+bundleId: 5945936
+url: https://paulmelloy.shinyapps.io/UniSuperDBD/
+when: 1653533066.2245
+lastSyncTime: 1653533066.2245
+asMultiple: FALSE
+asStatic: FALSE
