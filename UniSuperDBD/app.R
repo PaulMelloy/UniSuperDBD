@@ -10,10 +10,7 @@
 library(shiny)
 library(data.table)
 library(ggplot2)
-lsf_dat <- data.table(age = 40:65,
-                      lsf = seq(from = 18,
-                                to = 23,
-                                by = 0.2))
+source("R/calc_lsf.R")
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -47,7 +44,7 @@ ui <- fluidPage(
                          max = 100,
                          value = 100),
             numericInput("age",
-                         "Age in Years:",
+                         "Age at maturity in Years:",
                          min = 1,
                          max = 100,
                          value = 35),
@@ -56,7 +53,7 @@ ui <- fluidPage(
                          "Average contribution factor/percentage:",
                          min = 75,
                          max = 100,
-                         value = 74.5),
+                         value = 75.4),
             p("Average contribution factor is dependent on what percentage of your
               salary is committed to your super, you will need to get this number
               from UniSuper or from your online account profile."),
@@ -95,11 +92,12 @@ ui <- fluidPage(
            h3("Estimated maturity if accumulation was chosen"),
           textOutput("accumulation"),
           plotOutput("acc_plot"),
-          p(""),
+          p("The blue line is the growth of the Defined benefit division;
+            The black line is the growth of an estimated Accumulation super product"),
            p(""),
            p(""),
            p(""),
-           p("")
+           p("This tool assumes fees and insurance between the DBD and Accumulation products would be the same over time")
            #plotOutput("distPlot")
         )
     )
@@ -108,78 +106,73 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
 
-   lsf <- reactive({
-      if(input$age < 40){
-         return(18)
-      }else{
-      if(input$age > 65){
-         return(23)
-      }else{
-         return(lsf_dat[age == input$age,lsf])
-      }
-      }
-      return(NA)
-      })
+
 
    Maturity <-
       reactive({
          input$income *
             input$years *
             (input$fulltime / 100) *
-            (lsf() / 100) *
+            (calc_lsf(input$age) / 100) *
             (input$acf / 100)})
 
 
-   Contributions <- reactive({
+    Salary <- reactive({
 
       if(input$years > 5){
          income_last_5 <-
-            input$income * # Five year annual income average
-            5 * # last five years
-            (input$fulltime/100)
+            rep(input$income,5)  # Five year annual income average
 
 
          for(i in seq_len(input$years - 5)){
             if(i == 1){
-               income_legacy <- 0
-               salary_legacy <- input$income
-            }
+               salary_legacy <- income_legacy <-
+                  vector(mode = "numeric", length = input$years - 5)
+               salary_legacy[i] <-
+                  input$income * 0.98 # reduce according to average inflation
 
-            salary_legacy <-
-               salary_legacy *
-               0.98 * # reduce according to average inflation
-               (input$fulltime / 100)
 
-            income_legacy <-
-               income_legacy +
-               salary_legacy
+            }else{
+
+            salary_legacy[i] <-
+               salary_legacy[i-1] *
+               0.98 # reduce according to average inflation
+
+}
          }
 
-         Income_adj <- income_last_5 + income_legacy
+         Income_adj <- c(rev(salary_legacy),income_last_5)
 
       }else{
+
          Income_adj <-
-            input$income * # Five year annual income average
-            input$years *
-            (input$fulltime/100)
+            rep(input$income * # Five year annual income average
+                   (input$fulltime / 100),
+                input$years)
       }
 
-      Income_adj *
-         (input$contrib / 100) *
-         0.85 # apply 15% tax
+      Income_adj
 
    })
+
+   Contributions <-
+      reactive({
+         Salary() *
+            (input$fulltime/100)*
+            (input$contrib / 100) *
+            0.85 # apply 15% tax
+      })
 
 
    output$maturity <- reactive(format(Maturity(),
                                       big.mark = ",",
                                       scientific = FALSE))
-   output$contributions <- reactive(format(Contributions(),big.mark = ",",
+   output$contributions <- reactive(format(sum(Contributions()),big.mark = ",",
                                     scientific = FALSE))
 
    output$percent_return <- reactive({
-      round((Maturity() - Contributions())/
-         Contributions(),5)*100
+      round((Maturity() - sum(Contributions()))/
+         sum(Contributions()),5)*100
    })
 
    Accumulation <- reactive({
@@ -259,13 +252,24 @@ server <- function(input, output) {
 
    output$acc_plot <- renderPlot({
       dat <- Accumulation()
-      dat[, years := 1:input$years]
+      dat[, c("age","years") := list((input$age - input$years+1):input$age,
+                                     1:input$years)]
+      dat[, DBD :=
+             .(salary *
+             years *
+             (calc_lsf(age)/100)*
+             (input$acf/100) *
+             (input$fulltime/100))
+             ]
+
+
       dat |>
          ggplot(aes(x = years, y = accumulation1/1000))+
-         geom_line()+
+         geom_line(size = 1)+
+         geom_line(aes(x = years, y = DBD/1000), colour = "blue", size =1)+
          theme_minimal()+
          ylab("Account value in $1,000")+
-         ggtitle("Return over time if Accumulation was chosen")
+         ggtitle("Comparison of return over time for Accumulation and DBD products")
    })
 
 }
