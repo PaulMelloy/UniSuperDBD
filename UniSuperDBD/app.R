@@ -59,7 +59,9 @@ ui <- fluidPage(
                          value = 74.5),
             p("Average contribution factor is dependent on what percentage of your
               salary is committed to your super, you will need to get this number
-              from UniSuper or from your profile on the website."),
+              from UniSuper or from your online account profile."),
+            a(href= "https://www.unisuper.com.au/-/media/files/pds/dbd-and-accumulation-2/pds.pdf",
+              "You can also see the range of contributions factors on page 54 of this booklet"),
             numericInput("contrib",
                          "Total employer and employee percent of salary contributed to super",
                          min = 5,
@@ -86,7 +88,7 @@ ui <- fluidPage(
            p("If greater than 5 years service, this app assumes your income was 2% lower for each year prior to the last five years according to average inflation"),
            p(),
            p(),
-           h3("Percent return on investment"),
+           h3("DBD Percent return on investment"),
            textOutput("percent_return"),
            p(""),
            p(""),
@@ -194,16 +196,18 @@ server <- function(input, output) {
          for(i in seq_len(input$years - 5)){
             if(i == 1){
                salary_legacy <- contrib_legacy <- vector(mode = "numeric", length = input$years - 5)
-               salary_legacy[1] <- input$income
+               salary_legacy[1] <- input$income *
+                  0.98 * # reduce according to average inflation
+                  (input$fulltime/100)
             }else{
 
-            salary_legacy[i] <- salary_legacy[i] *
+            salary_legacy[i] <- salary_legacy[i-1] *
                0.98 * # reduce according to average inflation
                (input$fulltime/100)
             }
 
             contrib_legacy[i] <-
-               salary_legacy *
+               salary_legacy[i] *
                (input$contrib / 100) *
                0.85
          }
@@ -215,7 +219,8 @@ server <- function(input, output) {
                accu_return <- vector(mode = "numeric", length = input$years)
                accu_return[i] <- contrib_adj_v[i]
             }else{
-               accu_return[i] <- contrib_adj_v[i-1] * (1 + (input$acc_return/100))
+               accu_return[i] <- (accu_return[i-1] * (1 + (input$acc_return/100))) +
+                  contrib_adj_v[i]
             }
          }
 
@@ -236,7 +241,8 @@ server <- function(input, output) {
                accu_return <- vector(mode = "numeric", length = input$years)
                accu_return[i] <- contrib_last[i]
             }else{
-               accu_return[i] <- contrib_last[i-1] * (1 + (input$acc_return/100))
+               accu_return[i] <- (accu_return[i-1] * (1 + (input$acc_return/100)))+
+                  contrib_last[i]
             }
          }
 
@@ -253,11 +259,13 @@ server <- function(input, output) {
 
    output$acc_plot <- renderPlot({
       dat <- Accumulation()
-      dat[, years := input$years]
+      dat[, years := 1:input$years]
       dat |>
-         ggplot(aes(x = years, y = accumulation1))+
+         ggplot(aes(x = years, y = accumulation1/1000))+
          geom_line()+
-         theme_minimal()
+         theme_minimal()+
+         ylab("Account value in $1,000")+
+         ggtitle("Return over time if Accumulation was chosen")
    })
 
 }
