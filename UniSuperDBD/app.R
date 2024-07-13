@@ -11,12 +11,15 @@ library(shiny)
 library(data.table)
 library(ggplot2)
 source("R/calc_lsf.R")
+source("R/calc_abm.R")
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
 
     # Application title
     titlePanel("Calculating UniSuper Defined Benefit division"),
+    h2("UniSuper DBD"),
+
     a(href="https://paulmelloy.github.io/",
       "This app was designed and coded by Dr Paul Melloy"),
     p(),
@@ -71,7 +74,15 @@ ui <- fluidPage(
                          value = 2),
             p("This is assumed an average over the whole Years of service and"),
             a(href= "https://www.unisuper.com.au/investments/investment-performance",
-              "can be estimated from this link")
+              "can be estimated from this link"),
+            numericInput(inputId = "PSS_con",
+                         label = "PSS annual benefit",
+                         min = 0,
+                         max = 10,
+                         value = 5)
+            # p("This is assumed an average over the whole Years of service and"),
+            # a(href= "https://www.unisuper.com.au/investments/investment-performance",
+            #   "can be estimated from this link")
         ),
 
         # Show a plot of the generated distribution
@@ -105,8 +116,6 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
-
-
 
    Maturity <-
       reactive({
@@ -247,6 +256,22 @@ server <- function(input, output) {
       return(accum_dat)
 
    })
+
+   pss_dat <- reactive({
+      pss <-
+         data.table(
+            years = 1:input$years,
+            income = input$income,
+            abm = input$PSS_con/100)
+
+      pss$abm <- sapply(1:nrow(pss),function(x){
+         calc_abm(pss$abm[x],ten_year = x>9)
+         })
+      pss[, acc_abm := cumsum(abm)]
+      pss[, benefit := acc_abm * income]
+      return(pss)
+   })
+
    output$accumulation <- renderText(format(Accumulation()[.N,accumulation1],big.mark = ",",
                                             scientific = FALSE))
 
@@ -261,16 +286,21 @@ server <- function(input, output) {
              (input$acf/100) *
              (input$fulltime/100))
              ]
-
+      dat[ ,pss := pss_dat()$benefit]
 
       dat |>
          ggplot(aes(x = years, y = accumulation1/1000))+
          geom_line(size = 1)+
          geom_line(aes(x = years, y = DBD/1000), colour = "blue", size =1)+
+         geom_line(aes(x = years, y = pss/1000), colour = "cyan", size =1)+
          theme_minimal()+
          ylab("Account value in $1,000")+
          ggtitle("Comparison of return over time for Accumulation and DBD products")
    })
+
+
+
+
 
 }
 
