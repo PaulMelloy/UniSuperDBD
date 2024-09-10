@@ -121,6 +121,7 @@ ui <- fluidPage(
           p("The blue line is the growth of the Defined benefit division;
             The black line is the growth of an estimated Accumulation super product"),
            p(""),
+          tableOutput("DT_out"),
            p(""),
            p(""),
            p("This tool assumes fees and insurance between the DBD and Accumulation products would be the same over time")
@@ -131,6 +132,27 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+
+   # create data.table
+   DBD_dt <- reactive({
+      cbind(
+         data.table(years = seq_len(input$years),
+                    est_salary = Salary(),
+                    est_contributions = Salary() *
+                       (input$fulltime/100)*
+                       (input$contrib / 100) *
+                       0.85 # apply 15% tax,
+                    ),
+         Accumulation()
+         )
+
+   })
+
+   Annual_increments <-
+      reactive({
+         (input$fulltime/100) * # Reduce for average service fraction
+            (1 - input$salary_increments/100) # reduce for average salary increments
+      })
 
    Maturity <-
       reactive({
@@ -150,24 +172,24 @@ server <- function(input, output) {
 
          for(i in seq_len(input$years - 5)){
             if(i == 1){
+               # init
                salary_legacy <- income_legacy <-
                   vector(mode = "numeric", length = input$years - 5)
                salary_legacy[i] <-
-                  input$income * 0.98 # reduce according to average inflation
+                  input$income * Annual_increments()
 
 
             }else{
 
             salary_legacy[i] <-
                salary_legacy[i-1] *
-               0.98 # reduce according to average inflation
-
-}
+               Annual_increments()
+            }
          }
 
          Income_adj <- c(rev(salary_legacy),income_last_5)
 
-      }else{
+      }else{ # if less than 5 years
 
          Income_adj <-
             rep(input$income * # Five year annual income average
@@ -179,24 +201,18 @@ server <- function(input, output) {
 
    })
 
-   Contributions <-
-      reactive({
-         Salary() *
-            (input$fulltime/100)*
-            (input$contrib / 100) *
-            0.85 # apply 15% tax
-      })
 
 
    output$maturity <- reactive(format(Maturity(),
                                       big.mark = ",",
                                       scientific = FALSE))
-   output$contributions <- reactive(format(sum(Contributions()),big.mark = ",",
-                                    scientific = FALSE))
+   output$contributions <- reactive(format(sum(DBD_dt()$est_contributions),
+                                           big.mark = ",",
+                                           scientific = FALSE))
 
    output$percent_return <- reactive({
-      round((Maturity() - sum(Contributions()))/
-         sum(Contributions()),5)*100
+      round((Maturity() - sum(DBD_dt()$est_contributions))/
+         sum(DBD_dt()$est_contributions),5)*100
    })
 
    Accumulation <- reactive({
@@ -213,20 +229,20 @@ server <- function(input, output) {
          for(i in seq_len(input$years - 5)){
             if(i == 1){
                salary_legacy <- contrib_legacy <- vector(mode = "numeric", length = input$years - 5)
-               salary_legacy[1] <- input$income *
-                  0.98 * # reduce according to average inflation
-                  (input$fulltime/100)
+               salary_legacy[1] <-
+                  input$income *
+                  Annual_increments()
+
             }else{
 
             salary_legacy[i] <- salary_legacy[i-1] *
-               0.98 * # reduce according to average inflation
-               (input$fulltime/100)
+               Annual_increments()
             }
 
             contrib_legacy[i] <-
                salary_legacy[i] *
                (input$contrib / 100) *
-               0.85
+               0.85 # tax applied
          }
 
          contrib_adj_v <- c(rev(contrib_legacy),contrib_last_5)
@@ -245,7 +261,8 @@ server <- function(input, output) {
                                  contrib = c(contrib_adj_v),
                                  accumulation1 = accu_return)
 
-      }else{
+      }else{ #if less than 5 years
+
          contrib_last <-
             rep(input$income * # Five year annual income average
                    (input$fulltime/100)*
@@ -258,7 +275,8 @@ server <- function(input, output) {
                accu_return <- vector(mode = "numeric", length = input$years)
                accu_return[i] <- contrib_last[i]
             }else{
-               accu_return[i] <- (accu_return[i-1] * (1 + (input$acc_return/100)))+
+               accu_return[i] <- (accu_return[i-1] *
+                                     (1 + (input$acc_return/100)))+
                   contrib_last[i]
             }
          }
@@ -276,7 +294,7 @@ server <- function(input, output) {
       pss <-
          data.table(
             years = 1:input$years,
-            income = input$income,
+            income = Salary(),
             abm = input$PSS_con/100)
 
       pss$abm <- sapply(1:nrow(pss),function(x){
@@ -284,6 +302,8 @@ server <- function(input, output) {
          })
       pss[, acc_abm := cumsum(abm)]
       pss[, benefit := acc_abm * income]
+      pss[, contributions := cumsum(income*abm)]
+      pss[, return_rate := contributions/benefit]
       return(pss)
    })
 
@@ -315,7 +335,7 @@ server <- function(input, output) {
 
 
 
-
+    output$DT_out <- renderTable(pss_dat())
 
 }
 
